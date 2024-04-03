@@ -3,8 +3,24 @@ from gnuradio import blocks
 from gnuradio import filter
 from gnuradio import gr
 
-# Define the modulation and coding scheme
-modulation_type = gnuradio.modulation.qam.QAMConstellation(4)
+# Define helper functions for error handling
+def check_file_exists(filename):
+  """Checks if a file exists and raises an exception if not."""
+  if not os.path.isfile(filename):
+    raise FileNotFoundError(f"File not found: {filename}")
+
+def check_modulation_type(modulation_type):
+  """Checks if the modulation type is supported and raises an exception if not."""
+  supported_types = [gnuradio.modulation.qam.QAMConstellation(n) for n in [2, 4, 8, 16]]
+  if modulation_type not in supported_types:
+    raise ValueError(f"Unsupported modulation type: {modulation_type}")
+
+# Define the modulation and coding scheme (with error handling)
+try:
+  modulation_type = gnuradio.modulation.qam.QAMConstellation(4)
+except TypeError:
+  print("Error: Invalid modulation type. Using default QAM(4).")
+  modulation_type = gnuradio.modulation.qam.QAMConstellation(4)
 coder = gnuradio.digital.constellation_encoder.constellation_encoder(modulation_type)
 
 # Define the carrier frequency and frequency stability
@@ -25,7 +41,7 @@ error_corrector = blocks.reed_solomon_decoder(8, 4)
 # Define the data protocols and communication standards
 ax25_encoder = blocks.packet_encoder_ax25()
 tcp_decapsulator = blocks.tcp_decapsulator(port=10000)
-dass_encoder = blocks.dass_encoder()
+dass_encoder = blocks.dass_encoder()  # Optional voice compression
 
 # Define the in-orbit reconfigurability
 reconfig_manager = blocks.reconfig_manager(sync_state=None)
@@ -34,20 +50,27 @@ reconfig_manager = blocks.reconfig_manager(sync_state=None)
 top_block = gr.top_block("SDR_Platform")
 
 # Connect the blocks
-top_block.connect(
-    blocks.file_source(filename="received_signal.dat"),
-    lna,
-    noise_reducer,
-    pll,
-    synchronizer,
-    channel_estimator,
-    equalizer,
-    demodulator,
-    error_corrector,
-    reconfig_manager,
-    tcp_decapsulator,
-    blocks.file_sink(filename="decoded_data.dat"),
-)
+try:
+  check_file_exists("received_signal.dat")
+  check_file_exists("decoded_data.dat")
+  top_block.connect(
+      blocks.file_source(filename="received_signal.dat"),
+      lna,
+      noise_reducer,
+      pll,
+      synchronizer,
+      channel_estimator,
+      equalizer,
+      demodulator,
+      error_corrector,
+      reconfig_manager,
+      tcp_decapsulator,
+      blocks.file_sink(filename="decoded_data.dat"),
+  )
+except (FileNotFoundError, ValueError) as e:
+  print(f"Error: {e}")
+  top_block = None  # Prevent running if errors occur
 
-# Run the flowgraph
-top_block.run()
+# Run the flowgraph (if no errors)
+if top_block:
+  top_block.run()
